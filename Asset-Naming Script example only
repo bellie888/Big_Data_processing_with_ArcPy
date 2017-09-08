@@ -1,0 +1,2038 @@
+# -*- coding: utf-8 -*-
+
+"""
+
+# -*- coding: utf-8 -*-
+Created on Wed Mar 05 10:37:39 2014
+
+This script uses arcpy to read and write to geodatabases.
+
+This script is an example of the sort of script used to name assets for the work at ERIN
+It is a DRAFT and not a final copy. Not to be used except to help develop Python code. 
+Unofficial information.
+
+After defining some funtions and setting up the fields in the output dataset, the script
+goes through each dataset of database forming the names and groups for output. Some dataset processing
+is commented out while others are being developed.
+
+Variuos reports and lists are made during processing and a reported to the console. This
+includes the list of rules used to group each dataset; lists of assets; count of elements, assets etc; including 
+sorting lists before output.
+
+After this script, further scripts were run to error check; to dissolve the elements in to assets;
+and to produce further outputs in the correct format. Scripts were written to calculate areas and line lengths for the team.
+
+Each region has data as points, lines and poloygons and this was accounted for in the script when 
+deciding where it needed to go automatically.
+
+This is an early draft copy and only an exapmple of how to use geoproceesing tools and python modules to assist in 
+speedy and consistent data processing with a detailed record of how the data was processed.
+
+
+"""
+
+import arcpy
+
+import csv
+import sys
+
+from arcpy import env
+arcpy.env.overwriteOutput = True
+
+
+# GA environment
+arcpy.env.workspace = "D:\HUN\HUN_SourceDataFGB.gdb"
+env.workspace = "D:\HUN\HUN_SourceDataFGB.gdb"
+
+
+
+
+#    print field.name
+
+Report_AssetList = list()
+Report_Groups = list()
+Report_SubGroups = list()
+Report_Classes = list()
+Asset_Rules = list()
+countOfElements = 0
+countOfAssetsGalilee = 0
+specialCases = list()
+geometryType = ""
+thisFile = ""
+
+
+#dictionary for AssetID based on first ElementID
+AssID = {}
+thisFile = ""
+found = 9999
+countOfRows = 9999
+nameSplit=()
+
+"FUNCTIONS"
+def emptyTheLists():
+    #empty the list
+    del Report_AssetList[:]
+    del Report_Groups[:]
+    del Report_SubGroups[:]
+    del Report_Classes[:]
+    AssID.clear()
+
+
+def listTheGroupsAndClasses():
+    #    
+    
+    #add to report Lists (if not already in there)
+    if row.AssetName not in Report_AssetList:
+        Report_AssetList.append(str(row.AssetName))
+        #add to report Group List if not already in there
+    if row.Group_ not in Report_Groups:
+        Report_Groups.append(str(row.Group_))
+        #add to report SubGroup List if not already in there
+    if row.SubGroup not in Report_SubGroups:
+        Report_SubGroups.append(str(row.SubGroup))
+        #add to report Class List if not already in there
+    if row.Class not in Report_Classes:
+        Report_Classes.append(str(row.Class))
+
+def printGroupsAndClassesInfo():
+    # Print groups and subgroups . . . .
+    print
+    print "Number of Groups in HUN " + thisFile + " is "+ str(len(Report_Groups))
+    print "Number of Subgroups in HUN " + thisFile + " is "+ str(len(Report_SubGroups))
+    print "Number of Classes in HUN " + thisFile + " is " + str(len(Report_Classes))
+    # print "Found " + str(found)
+
+def prepareTheAttributeTable():
+    # prepare the Attribute Table
+    # add the Assett_name field and ID
+
+    #arcpy.DeleteField_management(thisFile, "M1_Reason") 
+        
+    try:
+        arcpy.AddField_management(thisFile, "AssetName", "TEXT", "", "", 255)
+    except:
+        print
+    
+    
+    arcpy.AddField_management(thisFile, "AssetID", "TEXT", "", "", 255)
+    
+    try:
+        arcpy.AddField_management(thisFile, "PAE_Region", "TEXT", "", "", 50)
+    except:
+        print ""
+    try:
+        arcpy.AddField_management(thisFile, "GEOMETRY", "TEXT", "", "", 50)
+    except:
+        print ""
+        
+
+    arcpy.AddField_management(thisFile, "AID", "LONG", "", "")
+    try:    
+        arcpy.AddField_management(thisFile, "M1", "TEXT", "", "", 50)
+    except:
+        print ""
+    try:    
+        arcpy.AddField_management(thisFile, "NameRule", "TEXT", "", "", 255)
+    except:
+        print ""
+    arcpy.AddField_management(thisFile, "T_Area_ha", "DOUBLE", "", "")
+    arcpy.AddField_management(thisFile, "P_Area_ha", "DOUBLE", "", "")
+    arcpy.AddField_management(thisFile, "P_Area_pct", "DOUBLE", "", "")
+
+    #add fields if don't exist    
+    try:
+        arcpy.AddField_management(thisFile, "Source", "TEXT", "", "", 50)
+    except:
+        print ""
+    try:
+        arcpy.AddField_management(thisFile, "ListDate", "DATE")
+    except:
+        print ""
+    try:
+        arcpy.AddField_management(thisFile, "M1_Reason", "TEXT", "", "", 255)
+    except:
+        print ""
+        
+#    try:
+#        arcpy.AddField_management(thisFile, "Class_Reason", "TEXT", "", "", 100)
+#    except:
+#        print ""
+    #find out the type of spatial file, point line or poly
+    desc = arcpy.Describe(thisFile)
+    geometryType = desc.shapeType
+        
+    
+def sortAndPrintTheAssetList():    
+    # Sort and print the Asset List including counts of features
+    # sort Asset List
+    Report_AssetList.sort()
+    # report the Asset List to the console
+    for item in Report_AssetList:
+        A_name = str(item)
+        print A_name
+    print
+    print
+    print "Total number of features in element list for ",
+    print thisFile + " is " + str(countOfRows) 
+    # + " of which " + str(found) + " were processed."
+    
+    print "Number of unique assets in ",
+    print thisFile,
+    print " is",
+    print len(Report_AssetList)    
+
+def AssetIDfromOnlyFirstElement():
+    #populate the AssetID field with first ElementID 
+    # a first time event
+    if row.AssetName not in AssID:
+        #make a new item in dictionary with value of first ElementID encountered
+        dicEntry = str(row.AssetName)
+        AssID[dicEntry] = row.ElementID
+        row.AssetID = "A_" + AssID[row.AssetName]
+        # print str(AssID[row.AssetName])
+    else:
+        # print "else"
+        row.AssetID = "A_" + AssID[row.AssetName]
+    # apply the M1_Reason to each row.
+    row.M1_reason = "Spatially overlaps or entirely within the PAE"
+    
+
+
+
+print
+print
+print "ASSET NAMING REPORT FOR CLARENCE-MORTON +++++++++++++++++++++++++++++++++++++"
+
+print
+print
+
+
+
+####
+
+## 
+"""  CAPAD CODE ++++++++++++++++++++++++++++++++++++++++++++++++++++++ """
+
+# name of current dataset file
+thisFile = "GM_pg_capad"
+thisFile02 = thisFile.replace("GM_pg_", "HUN ")
+
+
+# prepare the Attribute Table
+prepareTheAttributeTable()
+
+#open a curser
+cursor = arcpy.UpdateCursor(thisFile)
+
+#reset variables
+emptyTheLists()
+found = 0
+countOfRows = 0
+
+#while row:
+for row in cursor:
+    countOfRows += 1 
+    # remove any old data from AssetName   
+    row.AssetName = ""
+    row.AssetID = ""
+    
+    #classify
+    row.Group_ = "Ecological"
+    row.Subgroup = "Vegetation"
+    row.Class = "Habitat (potential species distribution)"
+    # row.Class_Reason = "National Parks - Reserves or Protected Areas etc."
+    row.M1_Reason = "Spatially overlaps or entirely within the PAE"
+    
+    
+    
+    # produce a unique name for UnNamed FMZ's    
+    # because the same name occures in several localities refering to different Assets
+    myString = str(row.Name)
+    if "Unnamed " in myString:
+        row.AssetName = row.Name + " " + row.COMMENTS + " and is a " + row.TYPE
+        found += 1
+        row.NameRule = "This is an Unnamed Forest Management Zone and needs the COMMENTS field to name them propertly (if Unnamed in Name field THEN Name field + Comments field + Type Field)"
+        row.M1 = "On"
+        
+    else:
+        # all others that are Named . . .        
+        #The reserve name plus the reserve type
+        row.AssetName = row.Name + " " + row.TYPE
+        found += 1
+        row.NameRule = "Asset Name = Name field + Type field"
+        row.M1 = "On"
+    
+    AssetRule = str(thisFile02) + " - " + row.NameRule
+    
+    #add to Asset_Rules List if not already in there
+    if AssetRule not in Asset_Rules:
+        Asset_Rules.append(AssetRule)
+
+    #add to report Asset List if not already in there
+    if row.AssetName not in Report_AssetList:
+        New_name = str(row.AssetName)
+        Report_AssetList.append(New_name)   
+
+    #add to report Asset List if not already in there
+    if row.AssetName not in Report_AssetList:
+        New_name = str(row.AssetName)
+        Report_AssetList.append(New_name)
+          
+    # if not in list print the missing name out to console    
+    if row.AssetName == "":
+        print row.type,
+        print "++++ Not found"
+    
+
+
+    # keep track of unique Groups, subGroups and classes    
+    listTheGroupsAndClasses()
+
+    
+    #populate the AssetID field with first ElementID 
+    AssetIDfromOnlyFirstElement()
+      
+    
+    cursor.updateRow(row)
+del cursor, row  
+print
+print
+  
+print "ASSET LIST REPORT for CAPAD ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" 
+
+# Sort and print the Asset List including counts of features
+sortAndPrintTheAssetList()
+
+#total up counts of Elements and Assets for Toatal Summary
+countOfElements = countOfElements + countOfRows
+countOfAssetsGalilee = countOfAssetsGalilee + len(Report_AssetList)
+
+#output Groups and classes data
+printGroupsAndClassesInfo()
+
+print 
+print
+print
+
+
+
+
+"DIWA "
+"""  DIWA CODE  +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ """
+
+# name of current dataset file
+thisFile = "GM_pg_DIWA"
+thisFile02 = thisFile.replace("GM_pg_", "HUN ")
+
+# prepare the Attribute Table
+prepareTheAttributeTable()
+
+#reset variables
+emptyTheLists()
+
+#open a curser
+cursor = arcpy.UpdateCursor(thisFile)
+
+#special variables for this data set
+foundSpecial = 0
+foundNormal = 0
+found = 0
+countOfRows = 0
+#while row:
+for row in cursor:
+    countOfRows += 1 
+    
+    # repair Class Name
+    # row.Class = "Wetland, wetland complex or swamp"    
+    
+    
+    # remove old data from AssetName   
+    row.AssetName = ""
+    row.AssetID = ""
+    
+    #classify
+    row.Group_ = "Ecological"
+    row.Subgroup = "Surface water feature"
+    row.Class = "Wetland, wetland complex or swamp"
+    #row.Class_Reason = "Surface water features"
+    row.M1_reason = "Spatially overlaps or entirely within the PAE"
+    #row.M1 = "Done"
+
+
+    # testing for Asset names in DIWA
+    # most are a direct copy
+    
+    #NAME ASSET AND ADD RULE TO ASSET RULES LIST
+    row.AssetName = row.WNAME
+    row.M1 = "On"
+    row.NameRule = "Asset Name = WNAME field"
+    
+    # ID the data source and nameing rule used    
+    AssetRule = str(thisFile02) + " - " + row.NameRule
+    
+    #add to Asset_Rules List if not already in there
+    if AssetRule not in Asset_Rules:
+        Asset_Rules.append(AssetRule)
+    
+    
+    found += 1
+    foundNormal += 1
+    #add to report Asset List if not already in there
+    if row.AssetName not in Report_AssetList:
+        New_name = str(row.AssetName)
+        Report_AssetList.append(New_name)
+
+
+       
+    #add to report Lists (if not already in there) 
+    listTheGroupsAndClasses()
+    
+    # if not in list print the missing name out to console    
+        
+    if row.AssetName == "":
+        print "Missing"
+        print row.WNAME
+        print
+        print
+        
+    #populate the AssetID field with first ElementID
+    AssetIDfromOnlyFirstElement()
+    
+    #save the feature to the shapefile
+    cursor.updateRow(row)
+del cursor, row
+
+print
+print
+print  
+print "ASSET LIST REPORT for DIWA ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ " 
+
+# Sort and print the Asset List including counts of features
+sortAndPrintTheAssetList()
+
+#total up counts of Elements and Assets for Toatal Summary
+countOfElements = countOfElements + countOfRows
+countOfAssetsGalilee = countOfAssetsGalilee + len(Report_AssetList)
+
+#output Groups and classes data
+printGroupsAndClassesInfo()
+
+print "FOUND SPECIAL ",
+print foundSpecial
+print "FOUND Normal ",
+print foundNormal
+print "TOTAL DIWA features = " + str(foundSpecial + foundNormal)
+
+print 
+print
+print
+
+
+"CHA=CHL done "
+"""  CHL CODE  +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ """
+# name of current dataset file
+thisFile = "GM_pg_CHL"
+thisFile02 = thisFile.replace("GM_pg_", "HUN ")
+
+# prepare the Attribute Table
+prepareTheAttributeTable()
+
+#reset variables
+emptyTheLists()
+found = 0
+countOfRows = 0
+
+#open a curser
+cursor = arcpy.UpdateCursor(thisFile)
+
+#work through the rows in the Attribute table one by one
+for row in cursor:
+    countOfRows += 1 
+    # remove old data from AssetName   
+    row.AssetName = ""
+    row.AssetID = ""
+    
+    #classify
+    row.Group_ = "Sociocultural"
+    row.Subgroup = "Cultural"
+    row.Class = "Heritage site"
+    row.M1_reason = "Spatially overlaps or entirely within the PAE"
+    
+    # testing for Asset names in CHA
+    # very simple copy name across
+    row.AssetName = row.NAME
+    #NAME ASSET AND ADD RULE TO ASSET RULES LIST
+    
+    row.M1 = "On"
+    row.NameRule = "Asset Name = NAME field"    
+    found += 1
+    # ID the data source and nameing rule used    
+    AssetRule = str(thisFile02) + " - " + row.NameRule
+    
+    #add to Asset_Rules List if not already in there
+    if AssetRule not in Asset_Rules:
+        Asset_Rules.append(AssetRule)
+    
+    
+    #add to report Asset List if not already in there
+    if row.AssetName not in Report_AssetList:
+        Report_AssetList.append(str(row.AssetName))
+    
+    
+    # keep track of Groups and Clesses for reporting numbers
+    listTheGroupsAndClasses()
+    
+    #populate the AssetID field with first ElementID 
+    AssetIDfromOnlyFirstElement()
+    
+    # write the new row before proceeding to the next one 
+    cursor.updateRow(row) 
+del cursor, row
+print
+print
+print
+
+  
+print "ASSET LIST REPORT for CHL ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ " 
+
+# Sort and print the Asset List including counts of features
+sortAndPrintTheAssetList()
+
+#total up counts of Elements and Assets for Total Summary
+countOfElements = countOfElements + countOfRows
+countOfAssetsGalilee = countOfAssetsGalilee + len(Report_AssetList)
+
+#output Groups and classes data
+printGroupsAndClassesInfo()
+
+print
+print
+print
+
+
+"""  HUN GROUND WATER MANAGEMENT PLAN CODE ++++++++++++++++++++++++++++++++++++++++++++++++++++++ """
+thisFile = "GM_pg_Economic_GWMP_new"
+thisFile02 = thisFile.replace("GM_pg_", "HUN_" )
+
+# prepare the Attribute Table
+prepareTheAttributeTable()
+
+#reset variables
+emptyTheLists()
+found = 0
+countOfRows = 0
+
+#open a curser
+cursor = arcpy.UpdateCursor(thisFile)
+
+#while row:
+for row in cursor:
+    countOfRows += 1 
+    # remove old data from AssetName   
+    row.AssetName = ""
+    row.AssetID = ""
+    row.ListDate = "02 July 2014"
+    row.M1_reason = "Spatially overlaps or entirely within the PAE"
+    
+
+
+    row.AssetName = row.Water_Sharing_Plan + " - " + row.W_Source_1
+    found += 1
+    #add to report Asset List if not already in there
+
+    row.M1 = "On"
+    row.NameRule = "Water_Sharing_Plan +  W_Source_1"      
+   
+    # ID the data source and nameing rule used    
+    AssetRule = str(thisFile02) + " - " + row.NameRule  
+    
+   
+    #add to Asset_Rules List if not already in there
+    if AssetRule not in Asset_Rules:
+        Asset_Rules.append(AssetRule)
+
+    
+    if row.AssetName not in Report_AssetList:
+        Report_AssetList.append(str(row.AssetName))
+    
+    # if not in list print the missing name out to console    
+    if row.AssetName == "":
+        print row.type
+        
+    #populate the AssetID field with only first ElementID 
+    AssetIDfromOnlyFirstElement()
+    
+    # keep track of the groups and classes    
+    listTheGroupsAndClasses()
+    
+    cursor.updateRow(row)
+del cursor, row
+print
+print
+print
+  
+print "ASSET LIST REPORT for HUN_economic_GWMP ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" 
+
+# Sort and print the Asset List including counts of features
+sortAndPrintTheAssetList()
+
+#total up counts of Elements and Assets for Total Summary
+countOfElements = countOfElements + countOfRows
+countOfAssetsGalilee = countOfAssetsGalilee + len(Report_AssetList)
+
+#output Groups and classes data
+printGroupsAndClassesInfo()
+print 
+print
+print
+emptyTheLists()
+
+
+
+
+
+"""  HUN  WATER SHARING PLAN CODE ++++++++++++++++++++++++++++++++++++++++++++++++++++++ """
+thisFile = "GM_pg_Economic_WSP_new"
+thisFile02 = thisFile.replace("GM_pg_", "HUN_" )
+
+# prepare the Attribute Table
+prepareTheAttributeTable()
+
+#reset variables
+emptyTheLists()
+found = 0
+countOfRows = 0
+
+#fields = arcpy.ListFields(thisFile)
+
+    
+
+#open a curser
+cursor = arcpy.UpdateCursor(thisFile)
+
+#while row:
+for row in cursor:
+    
+    # remove commas
+#    for field in fields:
+#        column = str(field)
+#        myString = row.column
+#        myString = myString.replace(",", " -")
+#        row.column = myString
+    
+    countOfRows += 1 
+    # remove old data from AssetName   
+    row.AssetName = ""
+    row.AssetID = ""
+    row.ListDate = "07 July 2014"
+    row.M1_reason = "Spatially overlaps or entirely within the PAE"
+
+    row.AssetName = row.NAME_OF_THE_PLAN + " - " + row.WATER_SOURCE
+    found += 1
+    #add to report Asset List if not already in there
+
+    row.M1 = "On"
+    row.NameRule = "NAME_OF_THE_PLAN + WATER_SOURCE"      
+   
+    # ID the data source and nameing rule used    
+    AssetRule = str(thisFile02) + " - " + row.NameRule  
+    
+   
+    #add to Asset_Rules List if not already in there
+    if AssetRule not in Asset_Rules:
+        Asset_Rules.append(AssetRule)
+
+    
+    if row.AssetName not in Report_AssetList:
+        Report_AssetList.append(str(row.AssetName))
+    
+    # if not in list print the missing name out to console    
+    if row.AssetName == "":
+        print row.type
+        
+    #populate the AssetID field with only first ElementID 
+    AssetIDfromOnlyFirstElement()
+    
+    # keep track of the groups and classes    
+    listTheGroupsAndClasses()
+    
+    cursor.updateRow(row)
+del cursor, row
+print
+print
+print
+  
+print "ASSET LIST REPORT for Namoi WATER SHARING PLAN ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" 
+
+# Sort and print the Asset List including counts of features
+sortAndPrintTheAssetList()
+
+#total up counts of Elements and Assets for Total Summary
+countOfElements = countOfElements + countOfRows
+countOfAssetsGalilee = countOfAssetsGalilee + len(Report_AssetList)
+
+#output Groups and classes data
+printGroupsAndClassesInfo()
+print 
+print
+print
+emptyTheLists()
+
+
+
+
+
+
+"  DONE -   "
+"""  GDEsurface CODE  +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ """
+
+
+thisFile = "GM_pg_GDEsur"
+thisFile02 = thisFile.replace("GM_pg_", "HUN ")
+
+# prepare the Attribute Table
+prepareTheAttributeTable()
+
+#reset variables
+emptyTheLists()
+found = 0
+countOfRows = 0
+
+#open a curser
+cursor = arcpy.UpdateCursor(thisFile)
+
+#while row:
+for row in cursor:
+    countOfRows += 1 
+    
+   
+    # remove old data from AssetName   
+    row.AssetName = ""
+    row.AssetID = ""  
+
+    #classify
+    row.Group_ = "Ecological"
+    row.Subgroup = "Vegetation"
+    row.Class = "Groundwater-dependent ecosystem"
+    
+      
+    # most are a direct copy
+
+    thisName = str(row.NAME)
+    
+      
+    
+    #remove full stop at end of statement
+    if thisName.endswith("."): 
+        thisName = thisName[:-1]
+    
+    #look for unnamed ones
+    if len(thisName) < 5:
+        #          
+        #thisName = str(row.EHZ_DS) + str(row.ECOTYPE_DS)
+        thisName = str(row.DRBASIN_DS)
+        thisName = thisName.title()
+        thisName = thisName + " Basin"
+        
+        row.NameRule = "Drainage Basin + 'GDE' + EcoType (only used for rows without 'Name' data"
+             
+    else:
+        thisName = str(row.NAME)
+        row.NameRule = "Name field + 'GDE' EcoType"
+            
+            
+     #convert to Title case
+    thisName = thisName.title() 
+
+    # add GDE to the string and populate the output field
+    row.AssetName = thisName + " GDE " + "(" + str(row.ECOTYPE_DS) + ")"
+    found += 1
+    row.M1 = "On"
+  
+    # ID the data source and nameing rule used    
+    AssetRule = str(thisFile02) + " - " + row.NameRule  
+    
+   
+    #add to Asset_Rules List if not already in there
+    if AssetRule not in Asset_Rules:
+        Asset_Rules.append(AssetRule)    
+    
+    
+    #add to report Asset List if not already in there
+    if row.AssetName not in Report_AssetList:
+        Report_AssetList.append(str(row.AssetName))
+  
+    # if not in list print the missing name out to console    
+        
+    if row.AssetName == "":
+        print "Missing"
+        print row.S_ETYPE_DS
+        print
+        print
+
+    #populate the AssetID field with only first ElementID 
+    AssetIDfromOnlyFirstElement()
+    
+    # keep track of the groups and classes    
+    listTheGroupsAndClasses()
+
+    #row.AssetName = row.ElementID
+    cursor.updateRow(row)
+del cursor, row
+
+  
+print "ASSET LIST REPORT for HUN GDE_surface ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ " 
+print
+# Sort and print the Asset List including counts of features
+sortAndPrintTheAssetList()
+
+#total up counts of Elements and Assets for Total Summary
+countOfElements = countOfElements + countOfRows
+countOfAssetsGalilee = countOfAssetsGalilee + len(Report_AssetList)
+
+#output Groups and classes data
+printGroupsAndClassesInfo()
+print 
+print
+print
+emptyTheLists()
+
+
+
+
+
+"  GDEsub  - DONE - Clarence Morton  "
+## other fields - COULD ALSO USE NVIS DATA 
+## Strange Name field with only the word vegetation.
+"""  GDEsub CODE  +++++++++++++++++++++++++++++++++++++++++++++++++++++++++++ """
+
+thisFile = "GM_pg_GDEsub"
+thisFile02 = thisFile.replace("GM_pg_", "HUN ")
+
+# prepare the Attribute Table
+prepareTheAttributeTable()
+
+#reset variables
+emptyTheLists()
+found = 0
+countOfRows = 0
+
+#open a curser
+cursor = arcpy.UpdateCursor(thisFile)
+
+
+#while row:
+for row in cursor:
+    countOfRows += 1 
+    
+#    if row.Class == "Groundwater dependent ecosystems/ Riparian vegetation":
+#        row.Class = "Groundwater-dependent ecosystems"
+
+    # remove old data from AssetName   
+    row.AssetName = ""
+    row.AssetID = ""  
+
+    #classify
+    row.Group_ = "Ecological"
+    row.Subgroup = "Vegetation"
+    row.Class = "Groundwater-dependent ecosystem"
+
+    
+    # most are a direct copy
+
+    thisName = str(row.S_ETYPE_DS)
+    
+    #look for unnamed S_ETYPE_DS
+
+    if len(thisName) < 8:
+        thisName = str(row.EHZ_DS) + " " + str(row.ECOCL_DS)
+        row.NameRule = "Asset Name = EHZ_DS + ECOCL_DS (because row.S_ETYPE_DS was NULL)"
+    else:
+        row.NameRule = "Asset Name = S.ETYPE_DS field (with leading numbers removed)" 
+        
+
+    # ID the data source and nameing rule used    
+    AssetRule = str(thisFile02) + " - " + row.NameRule
+    
+    #add to Asset_Rules List if not already in there
+    if AssetRule not in Asset_Rules:
+        Asset_Rules.append(AssetRule)
+        
+    # remove the letters FT and the space
+    if thisName.startswith("FT "):
+        thisName = thisName[3:]
+        
+    # remove the letters '1/' from the names
+    if thisName.startswith("1/"):
+        thisName = thisName[2:]
+        
+    # remove the letters '21/' from the names
+    if thisName.startswith("21/"):
+        thisName = thisName[3:]
+
+    
+    # Remove most numbers at front of NSW names
+    words = thisName.split()
+    
+    try:
+        if int(words[0]) < 1000:
+            words.pop(0)
+            newName = " ".join(words)
+            thisName = newName
+    except:
+        # do nothing
+        a = 0
+
+    # tidy up
+    thisName = thisName.replace("(Coastal)", "Coastal" )
+    thisName = thisName.replace(" - ", "-" )
+    thisName = thisName.replace(" / ", "/" )
+
+    # title case missing on some so change to Capital
+    #read the first letter
+    firstLetter = thisName[0]
+    
+    #capitalise the first letter
+    firstLetter = firstLetter.capitalize()
+    #remove the previous first letter
+    thisName = thisName[1:]
+    #join the new Capitalised letter onto it
+    thisName = firstLetter + thisName
+   
+    #remove trailing full stop
+    if thisName.endswith("."): 
+            thisName = thisName[:-1]
+            
+    row.AssetName = thisName + " GDE"
+    found += 1
+    
+    #add to report Asset List if not already in there
+    if row.AssetName not in Report_AssetList:
+        Report_AssetList.append(str(row.AssetName))
+
+    row.M1 = "On"
+        
+    # ID the data source and nameing rule used    
+    AssetRule = str(thisFile02) + " - " + row.NameRule
+    
+    #add to Asset_Rules List if not already in there
+    if AssetRule not in Asset_Rules:
+        Asset_Rules.append(AssetRule)       
+    
+    
+    # if not in list print the missing name out to console    
+        
+    if row.AssetName == "":
+        print "Missing"
+        print row.S_ETYPE_DS
+        print
+        print
+    
+    #populate the AssetID field with only first ElementID 
+    AssetIDfromOnlyFirstElement()
+    
+    # keep track of the groups and classes    
+    listTheGroupsAndClasses()
+    
+    #row.AssetName = row.ElementID
+    cursor.updateRow(row) 
+del cursor, row
+
+print
+print
+print
+ 
+print "ASSET LIST REPORT for GDEsub ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~ " 
+
+# Sort and print the Asset List including counts of features
+sortAndPrintTheAssetList()
+
+#total up counts of Elements and Assets for Total Summary
+countOfElements = countOfElements + countOfRows
+countOfAssetsGalilee = countOfAssetsGalilee + len(Report_AssetList)
+
+#output Groups and classes data
+printGroupsAndClassesInfo()
+print 
+print
+print
+
+
+
+
+
+
+
+" IBA DONE -   "
+"""  IBA CODE ++++++++++++++++++++++++++++++++++++++++++++++++++++++ """
+thisFile = "GM_pg_IBA"
+thisFile02 = thisFile.replace("GM_pg_", "HUN ")
+
+# prepare the Attribute Table
+prepareTheAttributeTable()
+
+#reset variables
+emptyTheLists()
+found = 0
+countOfRows = 0
+
+#open a curserHUN_dataSourceFilesFGB.gdb
+cursor = arcpy.UpdateCursor(thisFile)
+
+#while row:
+for row in cursor:
+    countOfRows += 1 
+    # remove old data from AssetName   
+    row.AssetName = ""
+    row.AssetID = ""
+    row.M1 = "On"
+    
+    #classify
+    row.Group_ = "Ecological"
+    row.Subgroup = "Vegetation"
+    row.Class = "Habitat (potential species distribution)"
+    
+    #read the IBANAME field into a variable
+    oldString = str(row.IBANAME)
+    # replace IBA with Important Bird Area and place in table field      
+    row.AssetName = oldString.replace(" IBA", " Important Bird Area")
+    row.NameRule = "Table Name field + Important Bird Area"
+    found += 1
+    #add to report Asset List if not already in there
+    
+    # ID the data source and nameing rule used    
+    AssetRule = str(thisFile02) + " - " + str(row.NameRule)
+    
+    #add to Asset_Rules List if not already in there
+    if AssetRule not in Asset_Rules:
+        Asset_Rules.append(AssetRule)       
+    
+        
+    if row.AssetName not in Report_AssetList:
+        Report_AssetList.append(str(row.AssetName))
+    
+    # if not in list print the missing name out to console    
+    if row.AssetName == "":
+        print row.type
+        
+    #populate the AssetID field with only first ElementID 
+    AssetIDfromOnlyFirstElement()
+    
+    # keep track of the groups and classes    
+    listTheGroupsAndClasses()
+    
+    cursor.updateRow(row)
+del cursor, row
+print
+print
+print
+  
+print "ASSET LIST REPORT for IBA ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" 
+
+# Sort and print the Asset List including counts of features
+sortAndPrintTheAssetList()
+
+#total up counts of Elements and Assets for Total Summary
+countOfElements = countOfElements + countOfRows
+countOfAssetsGalilee = countOfAssetsGalilee + len(Report_AssetList)
+
+#output Groups and classes data
+printGroupsAndClassesInfo()
+print 
+print
+print
+emptyTheLists()
+#
+
+
+
+
+
+"  NHL    just checkgroup sugroup and class are the right names"
+"""  NHL CODE ++++++++++++++++++++++++++++++++++++++++++++++++++++++ """
+
+# name of current dataset file
+thisFile = "GM_pg_NHL"
+thisFile02 = thisFile.replace("GM_pg_", "HUN ")
+
+# prepare the Attribute Table
+prepareTheAttributeTable()
+
+#reset variables
+emptyTheLists()
+found = 0
+countOfRows = 0
+
+#open a curser
+cursor = arcpy.UpdateCursor(thisFile)
+
+#while row:
+for row in cursor:
+    countOfRows += 1 
+    # remove old data from AssetName   
+    row.AssetName = ""
+    row.AssetID = ""
+    row.Group_ = "Sociocultural"
+    row.Subgroup = "Cultural"
+    row.Class = "Heritage Site"
+    row.Depth = "Surface"
+    
+    #read the NAME field into a variable
+    oldString = str(row.NAME)
+   
+    # Remove 'The' if it occurs     
+    oldString = row.NAME.replace("The ","")
+    old2String = "National Heritage Listed " + oldString
+    row.AssetName = old2String
+    found += 1
+    
+    row.NameRule = "National Heritage Listed + 'Name' field"
+    
+    row.M1="On"
+    # ID the data source and nameing rule used    
+    AssetRule = str(thisFile02) + " - " + str(row.NameRule)
+    
+
+    #add to Asset_Rules List if not already in there
+    if AssetRule not in Asset_Rules:
+        Asset_Rules.append(AssetRule)       
+    
+    
+    
+    #add to report Asset List if not already in there
+       
+    if row.AssetName not in Report_AssetList:
+        Report_AssetList.append(str(row.AssetName))
+        
+     
+    #populate the AssetID field with only first ElementID 
+    AssetIDfromOnlyFirstElement()
+    
+    # keep track of the groups and classes    
+    listTheGroupsAndClasses()
+
+    cursor.updateRow(row)
+del cursor, row  
+print
+
+  
+print "ASSET LIST REPORT for " + thisFile + " ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" 
+print "NATIONAL HERITAGE LISTING"
+
+# Sort and print the Asset List including counts of features
+sortAndPrintTheAssetList()
+
+#total up counts of Elements and Assets for Total Summary
+countOfElements = countOfElements + countOfRows
+countOfAssetsGalilee = countOfAssetsGalilee + len(Report_AssetList)
+
+#output Groups and classes data
+printGroupsAndClassesInfo()
+print 
+print
+print
+
+#DONE
+
+
+" RAMSAR  -  - only two elements - one is only 12.5 ha"
+"""  RAMSAR CODE ++++++++++++++++++++++++++++++++++++++++++++++++++++++ """
+# define the file name
+thisFile = "GM_pg_Ramsar"
+thisFile02 = thisFile.replace("GM_pg_", "HUN ")
+
+# prepare the Attribute Table
+prepareTheAttributeTable()
+
+#reset variables
+emptyTheLists()
+found = 0
+countOfRows = 0
+
+#open a curser
+cursor = arcpy.UpdateCursor(thisFile)
+
+
+#while row:
+for row in cursor:
+    countOfRows += 1 
+    # remove old data from AssetName   
+    row.AssetName = ""
+    
+    
+    #classify
+    row.Group_ = "Ecological"
+    row.Subgroup = "Surface water feature"
+    row.Class = "Lake, reservoir, lagoon or estuary" 
+    row.depth = "Surface"
+    
+    
+    
+    #read the IBANAME field into a variable
+    oldString = str(row.RAMSAR_NAME)
+    
+    
+    
+    old2String = oldString + " wetland of International importance" 
+    row.AssetName = old2String
+    found += 1
+    
+    row.NameRule = "RAMSAR_NAME + 'wetland of International importance'"
+    
+    row.M1="On"
+    # ID the data source and nameing rule used    
+    AssetRule = str(thisFile02) + " - " + str(row.NameRule)
+    
+    #add to Asset_Rules List if not already in there
+    if AssetRule not in Asset_Rules:
+        Asset_Rules.append(AssetRule)       
+    
+    #add to report Asset List if not already in there    
+    if row.AssetName not in Report_AssetList:
+        Report_AssetList.append(str(row.AssetName))
+    
+            
+    # if not in list print the missing name out to console    
+    if row.AssetName == "":
+        print row.type
+        
+    #populate the AssetID field with only first ElementID 
+    AssetIDfromOnlyFirstElement()
+    
+    # keep track of the groups and classes    
+    listTheGroupsAndClasses()
+    
+    cursor.updateRow(row)
+del cursor, row  
+print
+print
+print
+  
+print "ASSET LIST REPORT for RAMSAR ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" 
+# Sort and print the Asset List including counts of features
+sortAndPrintTheAssetList()
+
+#total up counts of Elements and Assets for Total Summary
+countOfElements = countOfElements + countOfRows
+countOfAssetsGalilee = countOfAssetsGalilee + len(Report_AssetList)
+
+#output Groups and classes data
+printGroupsAndClassesInfo()
+print 
+print
+print
+
+
+
+
+
+
+"  RNE  -  "
+#Cunninghams Gap NP has two elements - one for North and one for south
+#"""  RNE CODE ++++++++++++++++++++++++++++++++++++++++++++++++++++++ """
+# define the file name
+thisFile = "GM_pg_RNE"
+thisFile02 = thisFile.replace("GM_pg_", "HUN ")
+#
+# prepare the Attribute Table
+prepareTheAttributeTable()
+
+arcpy.AddField_management(thisFile, "NameExtended", "TEXT", "", "", 255)
+
+try:
+    arcpy.AddField_management(thisFile, "Class", "TEXT", "", "", 255)
+except:
+    print ""
+
+#reset variables
+emptyTheLists()
+found = 0
+countOfRows = 0
+
+#open a curser
+cursor = arcpy.UpdateCursor(thisFile)
+
+
+#while row:
+for row in cursor:
+    countOfRows += 1 
+    # remove old data from AssetName   
+    row.AssetName = ""
+
+    row.AssetID = ""
+    row.Group_ = "Socio-cultural"
+    row.Subgroup = "Cultural"
+    
+    if row.HCLASS == "Historic":
+        row.Class = "Heritage site"
+        
+    if row.HCLASS == "Indigenous":
+        row.Class = "Indigenous site"
+        
+    if row.HCLASS == "Natural":
+        row.SubGroup = "Social"
+        row.Class = "Recreation area"
+
+    
+    row.NameExtended = str(row.Name) + "- " + str(row.ADDRESS)
+ 
+    # row.AssetName = row.NameExtended + " " + row.Class + " " + row.STATUS
+    row.AssetName = row.NameExtended
+    
+    found += 1
+
+   
+    row.NameRule = "Table 'Name' feild + table 'address' feild"
+    
+    row.M1="On"
+    # ID the data source and nameing rule used    
+    AssetRule = str(thisFile02) + " - " + str(row.NameRule)
+    
+    #add to Asset_Rules List if not already in there
+    if AssetRule not in Asset_Rules:
+        Asset_Rules.append(AssetRule) 
+        
+    if row.AssetName not in Report_AssetList:
+        Report_AssetList.append(str(row.AssetName))
+    else:
+        print "the other one is " + str(row.AssetName)
+        print "suspected duplicate"
+            
+    # if not in list print the missing name out to console    
+    if row.AssetName == "":
+        print row.type
+   
+    #populate the AssetID field with only first ElementID 
+    AssetIDfromOnlyFirstElement()
+    
+    # keep track of the groups and classes    
+    listTheGroupsAndClasses()
+    
+    cursor.updateRow(row) 
+del cursor, row 
+print
+print
+print
+  
+print "ASSET LIST REPORT for " + thisFile + " ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" 
+print "REGISTER OF NATIONAL ESTATE"
+
+print
+print "NOTE: Cunninghams Gap National Park has two elements that are adjacent."
+print
+print
+
+# Sort and print the Asset List including counts of features
+sortAndPrintTheAssetList()
+
+#total up counts of Elements and Assets for Total Summary
+countOfElements = countOfElements + countOfRows
+countOfAssetsGalilee = countOfAssetsGalilee + len(Report_AssetList)
+
+#output Groups and classes data
+printGroupsAndClassesInfo()
+print 
+print
+print
+
+
+" EPBC - DONE " 
+#"""  SPECIES EPBC CODE ++++++++++++++++++++++++++++++++++++++++++++++++++++++ """
+## define the file name
+thisFile = "GM_pg_Species_EPBC"
+thisFile02 = thisFile.replace("GM_pg_", "HUN ")
+
+# prepare the Attribute Table
+prepareTheAttributeTable()
+
+#reset variables
+emptyTheLists()
+found = 0
+countOfRows = 0
+
+
+#open a curser
+cursor = arcpy.UpdateCursor(thisFile)
+# row = cursor.next()
+
+commonName = ""
+scientificName = ""
+
+#while row:
+for row in cursor:
+    countOfRows += 1 
+    
+    # remove old data from AssetName   
+    row.AssetName = ""
+    
+    
+    #populate the Group Subgroup ect
+    row.Group_ = "Ecological"
+    row.Subgroup = "Vegetation"
+    row.Class = "Habitat (potential species distribution)"
+    row.Source = "National EPBC Species List"
+    
+    commonName = str(row.CommonName)
+    #remove extra spaces
+    if commonName.endswith("  "):
+        commonName = commonName[:-2]
+    # add space after the common name for sentance punctuation
+    commonName = commonName + " "    
+    
+    # if no common name remove the word "None" and use scientific name only    
+    if commonName == "None ":
+        
+        scientificName = str(row.ScientificName)
+        # remove extra spaces
+        if scientificName.endswith("  "): 
+            scientificName = scientificName[:-2]
+        if scientificName.endswith(" "): 
+            scientificName = scientificName[:-1]
+        # first common name only   
+        nameSplit = commonName.split(",")
+        commonName = nameSplit[0]
+        #define the naming rule        
+        row.NameRule = "'potential distribution of' + scientific name (because no common name in table)"
+    
+        row.AssetName = "potential distribution of " + scientificName
+    else:
+        # otherwise include the scientific name
+        scientificName = str(row.ScientificName)
+        #remove occasional doulble space between words
+        scientificName = scientificName.replace("  ", " ")
+        # remove extra spaces
+        if scientificName.endswith("  "): 
+            scientificName = scientificName[:-2]
+        if scientificName.endswith(" "): 
+            scientificName = scientificName[:-1]
+        # remove commas
+        # first common name only
+        nameSplit = commonName.split(",")   
+        commonName = nameSplit[0]
+        row.AssetName = "potential distribution of " + commonName + " (" + scientificName + ")"
+        #define the naming rule
+        row.NameRule = " 'potential distribution of' + First common name only with extra spaces removed + scientific name in brakets"
+        
+    found += 1
+
+
+    row.M1="On"
+    # ID the data source and nameing rule used    
+    AssetRule = str(thisFile02) + " - " + str(row.NameRule)
+    
+    #add to Asset_Rules List if not already in there
+    if AssetRule not in Asset_Rules:
+        Asset_Rules.append(AssetRule) 
+
+    #add to report Asset List if not already in there    
+    if row.AssetName not in Report_AssetList:
+        Report_AssetList.append(str(row.AssetName))    
+
+    
+    #populate the AssetID field with only first ElementID 
+    AssetIDfromOnlyFirstElement()
+    
+    # keep track of the groups and classes    
+    listTheGroupsAndClasses()    
+    
+    
+    #row.AssetName = row.ElementID
+    cursor.updateRow(row) 
+del cursor, row 
+print
+print
+print
+  
+print "ASSET LIST REPORT for SPECIES EPBC ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" 
+# Sort and print the Asset List including counts of features
+sortAndPrintTheAssetList()
+
+#total up counts of Elements and Assets for Total Summary
+countOfElements = countOfElements + countOfRows
+countOfAssetsGalilee = countOfAssetsGalilee + len(Report_AssetList)
+
+#output Groups and classes data
+printGroupsAndClassesInfo()
+print 
+print
+print
+
+
+
+
+" TEC done  "
+"""  TEC CODE ++++++++++++++++++++++++++++++++++++++++++++++++++++++ """
+# define the file name
+thisFile = "GM_pg_TEC"
+thisFile02 = thisFile.replace("GM_pg_", "HUN ")
+
+# prepare the Attribute Table
+prepareTheAttributeTable()
+
+#reset variables
+emptyTheLists()## prepare the Attribute Table
+prepareTheAttributeTable()
+found = 0
+countOfRows = 0
+
+#open a curser
+cursor = arcpy.UpdateCursor(thisFile)
+
+
+#while row:
+for row in cursor:
+    countOfRows += 1 
+    # remove old data from AssetName   
+    row.AssetName = ""
+    
+    #populate the Group Subgroup ect
+    row.Group_ = "Ecological"
+    row.Subgroup = "Vegetation"
+    row.Class = "Habitat (potential species distribution)"
+    
+    
+   
+    row.AssetName = row.COM_NAME + " Threatened Ecological Community"     
+
+    found += 1
+    
+    row.NameRule = " COM_NAME field + 'Threatened Ecological Community'"
+    row.M1="On"
+    
+    # ID the data source and nameing rule used    
+    AssetRule = str(thisFile02) + " - " + str(row.NameRule)
+    
+    #add to Asset_Rules List if not already in there
+    if AssetRule not in Asset_Rules:
+        Asset_Rules.append(AssetRule) 
+        
+    if row.AssetName not in Report_AssetList:
+        Report_AssetList.append(str(row.AssetName))
+ 
+   
+    #if not in list print the missing name out to console
+    if row.AssetName == "":
+        print "Missing "
+        print row.COMMUNITY_NAME
+        
+    #populate the AssetID field with only first ElementID 
+    AssetIDfromOnlyFirstElement()
+    
+    # keep track of the groups and classes    
+    listTheGroupsAndClasses()
+    
+
+    cursor.updateRow(row)
+del cursor, row  
+print
+print
+print
+  
+print "ASSET LIST REPORT for TEC ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" 
+
+# Sort and print the Asset List including counts of features
+sortAndPrintTheAssetList()
+
+#total up counts of Elements and Assets for Total Summary
+countOfElements = countOfElements + countOfRows
+countOfAssetsGalilee = countOfAssetsGalilee + len(Report_AssetList)
+
+#output Groups and classes data
+printGroupsAndClassesInfo()
+print 
+print
+print
+
+
+
+
+
+
+" NRM =  WAIT done "
+"""  HUN NRM = WAIT Point CODE ++++++++++++++++++++++++++++++++++++++++++++++++++++++ """
+
+thisFile = "GM_pt_NRM"
+thisFile02 = thisFile.replace("GM_pt_", "HUN ")
+
+# prepare the Attribute Table
+prepareTheAttributeTable()
+
+#reset variables
+emptyTheLists()
+found = 0
+countOfRows = 0
+
+#open a curser
+cursor = arcpy.UpdateCursor(thisFile)
+
+
+    
+
+#while row:
+for row in cursor:
+    countOfRows += 1
+    
+    # remove old data from Asset_name 
+    row.AssetName = ""
+    
+    #populate the Group Subgroup ect
+    row.Group_ = "Ecological"
+    row.Subgroup = "Surface water feature"
+    row.Class = "Waterhole, pool, rockpool or billabong"
+    if "Spring" in row.Name:
+        row.Class = "Marsh, sedgeland, bog, spring or soak"
+    
+    #tidy up the name
+    nameString = str(row.Name)
+    titleCaseName = nameString.title()
+    titleCaseName = titleCaseName.replace("Spring Spring", "Spring")
+
+    # insert asset naming code here
+    row.AssetName = titleCaseName
+   
+    
+    #add to report Lists (if not already in there)
+    if row.AssetName not in Report_AssetList:
+        Report_AssetList.append(str(row.AssetName))
+        #add to report Group List if not already in there
+    
+    row.NameRule = "'Name' field from Table converted to Title Case if needed"
+    row.M1="On"
+    
+    # ID the data source and nameing rule used    
+    AssetRule = str(thisFile02) + " - " + str(row.NameRule)
+    
+    #add to Asset_Rules List if not already in there
+    if AssetRule not in Asset_Rules:
+        Asset_Rules.append(AssetRule) 
+        
+    
+    #populate the AssetID field with only first ElementID 
+    AssetIDfromOnlyFirstElement()
+    
+    # keep track of the groups and classes    
+    listTheGroupsAndClasses()
+        
+           
+    cursor.updateRow(row)
+del cursor, row  
+print
+print
+
+  
+print "ASSET LIST REPORT for WAIT in the HUN (POINTS) ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" 
+
+# Sort and print the Asset List including counts of features
+sortAndPrintTheAssetList()
+
+#total up counts of Elements and Assets for Total Summary
+countOfElements = countOfElements + countOfRows
+countOfAssetsGalilee = countOfAssetsGalilee + len(Report_AssetList)
+
+#output Groups and classes data
+printGroupsAndClassesInfo()
+print 
+print
+print
+
+
+
+
+" NRM = WAIT LINES done  "
+"""  HUN NRM (= WAIT) LINES CODE ++++++++++++++++++++++++++++++++++++++++++++++++++++++ """
+
+thisFile = "GM_pl_NRM"
+thisFile02 = thisFile.replace("GM_pl_", "HUN ")
+
+# prepare the Attribute Table
+prepareTheAttributeTable()
+
+#reset variables
+emptyTheLists()
+found = 0
+countOfRows = 0
+
+#open a curser
+cursor = arcpy.UpdateCursor(thisFile)
+
+#while row:
+for row in cursor:
+    countOfRows += 1
+    
+    # remove old data from Asset_name 
+    row.AssetName = ""
+    
+    #populate the Group Subgroup ect
+    row.Group_ = "Ecological"
+    row.Subgroup = "Surface water feature"
+    row.Class = "River or stream reach, tributary, anabranch or bend"
+      
+    
+    
+    #row.GEOMETRY = str(geometryType)
+    # row.GEOMETRY = "Line"
+    
+    nameString = str(row.NAME)
+    titleCaseName = nameString.title()
+
+    # insert asset naming code here
+    row.AssetName = titleCaseName
+    
+    
+    row.NameRule = "'Name' field from Table converted to Title Case if needed"
+    
+    row.M1="On"
+    
+    # ID the data source and nameing rule used    
+    AssetRule = str(thisFile02) + " - " + str(row.NameRule)
+    
+    #add to Asset_Rules List if not already in there
+    if AssetRule not in Asset_Rules:
+        Asset_Rules.append(AssetRule) 
+   
+    
+    #add to report Lists (if not already in there)
+    if row.AssetName not in Report_AssetList:
+        Report_AssetList.append(str(row.AssetName))
+        #add to report Group List if not already in there
+    
+    # if not in list print the missing name out to console    
+    if row.AssetName == "":
+        print row.AuthorisedPurposeList
+    
+    #populate the AssetID field with only first ElementID 
+    AssetIDfromOnlyFirstElement()
+    
+    # keep track of the groups and classes    
+    listTheGroupsAndClasses()
+        
+           
+    cursor.updateRow(row)
+del cursor, row  
+print
+print
+
+  
+print "ASSET LIST REPORT for NRM/WAIT in the HUN (LINES) ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" 
+
+# Sort and print the Asset List including counts of features
+sortAndPrintTheAssetList()
+
+#total up counts of Elements and Assets for Total Summary
+countOfElements = countOfElements + countOfRows
+countOfAssetsGalilee = countOfAssetsGalilee + len(Report_AssetList)
+
+#output Groups and classes data
+printGroupsAndClassesInfo()
+print 
+print
+print
+
+
+" NRM = WAIT POLY 
+## this is the same as the NRM polygon data
+#"""  HUN NRM/WAIT POLYGONS CODE ++++++++++++++++++++++++++++++++++++++++++++++++++++++ """
+#
+thisFile = "GM_pg_NRM"
+thisFile02 = thisFile.replace("GM_pg_", "HUN ")
+
+# prepare the Attribute Table
+prepareTheAttributeTable()
+
+#reset variables
+emptyTheLists()
+found = 0
+countOfRows = 0
+
+#open a curser
+cursor = arcpy.UpdateCursor(thisFile)
+
+
+#while row:
+for row in cursor:
+    countOfRows += 1
+    row.AID = 0
+    
+    # remove old data from Asset_name 
+    row.AssetName = ""
+    # row.GEOMETRY = "Polygon"
+    
+    # remove old data    
+    row.Class = ""
+    
+    #populate the Group Subgroup ect
+    if "borefield" in row.Description:
+        row.Group_ = "Economic"
+        row.SubGroup = "Groundwater management zone or area (surface area)"
+        row.Class = "Water supply and monitoring infrastructure"
+        row.Depth = "Subsurface"
+        
+        
+    if "Coastal sedgelands" in row.Description:
+        row.Group_ = "Ecological"
+        row.SubGroup = "Surface water feature"
+        row.Class = "Marsh, sedgeland, bog, spring or soak"
+        row.Depth = "Surface"
+        
+        
+    if "Coastal wet heath" in row.Description:
+        row.Group_ = "Ecological"
+        row.SubGroup = "Surface water feature"
+        row.Class = "Marsh, sedgeland, bog, spring or soak"
+        row.Depth = "Surface"
+        
+        
+    if "Estuary" in row.Description:
+        row.Group_ = "Ecological"
+        row.SubGroup = "Surface water feature"
+        row.Class = "Lake, reservoir, lagoon or estuary"
+        row.Depth = "Surface"
+        
+        
+    if "Floodplain wetlands" in row.Description:
+        row.Group_ = "Ecological"
+        row.SubGroup = "Surface water feature"
+        row.Class = "Floodplain"
+        row.Depth = "Surface"
+        
+        
+    if "Forested wetlands" in row.Description:
+        row.Group_ = "Ecological"
+        row.SubGroup = "Surface water feature"
+        row.Class = "Wetland, wetland complex or swamp"
+        row.Depth = "Surface"
+        
+        
+    if "Freshwater lakes" in row.Description:
+        row.Group_ = "Ecological"
+        row.SubGroup = "Surface water feature"
+        row.Class = "Lake, reservoir, lagoon or estuary"
+        row.Depth = "Surface"
+        
+        
+    if "Freshwater wetland" in row.Description:
+        row.Group_ = "Ecological"
+        row.SubGroup = "Surface water feature"
+        row.Class = "Wetland, wetland complex or swamp"
+        row.Depth = "Surface"
+        
+      
+    if "Mangrove" in row.Description:
+        row.Group_ = "Ecological"
+        row.SubGroup = "Surface water feature"
+        row.Class = "Lake, reservoir, lagoon or estuary"
+        row.Depth = "Surface"
+        
+        
+    if "Moreton Bay Ramsar" in row.Description:
+        row.Group_ = "Ecological"
+        row.SubGroup = "Surface water feature"
+        row.Class = "Lake, reservoir, lagoon or estuary"
+        row.Depth = "Surface"
+        
+        
+    if "EEC" in row.Description:
+        row.Group_ = "Ecological"
+        row.SubGroup = "Vegetation"
+        row.Class = "Groundwater-dependent ecosystem"
+        row.Depth = "Surface"
+        
+        
+    if "Riparian wetlands" in row.Description:
+        row.Group_ = "Ecological"
+        row.SubGroup = "Vegetation"
+        row.Class = "Riparian vegetation"
+        row.Depth = "Surface"
+        
+        
+    if "Saline lakes" in row.Description:
+        row.Group_ = "Ecological"
+        row.SubGroup = "Surface water feature"
+        row.Class = "Lake, reservoir, lagoon or estuary"
+        row.Depth = "Surface"
+        
+        
+    if "Saltmarsh" in row.Description:
+        row.Group_ = "Ecological"
+        row.SubGroup = "Surface water feature"
+        row.Class = "Marsh, sedgeland, bog, spring or soak"
+        row.Depth = "Surface"
+        
+        
+    if "Saltwater lagoons" in row.Description:
+        row.Group_ = "Ecological"
+        row.SubGroup = "Surface water feature"
+        row.Class = "Lake, reservoir, lagoon or estuary"
+        row.Depth = "Surface"
+        
+    
+    # most will be named this way    
+    row.NameRule = "'Name' field from Table converted to Title Case if needed"
+    
+    #however if unnamed then use the description field
+    if str(row.Name) == "unnamed":
+        row.Name = row.Description
+        row.NameRule = "Name from Description Field (because no 'Name' text)"
+    
+    nameString = str(row.Name)
+    titleCaseName = nameString.title()
+
+    # insert asset naming code here
+    row.AssetName = titleCaseName
+    
+    
+    
+    row.M1="On"
+    
+    # ID the data source and nameing rule used    
+    AssetRule = str(thisFile02) + " - " + str(row.NameRule)
+    
+    #add to Asset_Rules List if not already in there
+    if AssetRule not in Asset_Rules:
+        Asset_Rules.append(AssetRule) 
+   
+    
+    #add to report Lists (if not already in there)
+    if row.AssetName not in Report_AssetList:
+        Report_AssetList.append(str(row.AssetName))
+        #add to report Group List if not already in there
+    
+    # if not in list print the missing name out to console    
+    if row.AssetName == "":
+        print row.AuthorisedPurposeList
+    
+    #populate the AssetID field with only first ElementID 
+    AssetIDfromOnlyFirstElement()
+    
+    # keep track of the groups and classes    
+    listTheGroupsAndClasses()
+        
+           
+    cursor.updateRow(row)
+del cursor, row  
+print
+print
+
+  
+print "ASSET LIST REPORT for WAIT in the HUN (POLYGONS)~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" 
+
+# Sort and print the Asset List including counts of features
+sortAndPrintTheAssetList()
+
+#total up counts of Elements and Assets for Total Summary
+countOfElements = countOfElements + countOfRows
+countOfAssetsGalilee = countOfAssetsGalilee + len(Report_AssetList)
+
+#output Groups and classes data
+printGroupsAndClassesInfo()
+print 
+print
+print
+
+
+
+
+"  WHA   "
+"""  WHA CODE for HUN  ++++++++++++++++++++++++++++++++++++++++++++++++++++++ """
+
+thisFile = "GM_pg_WHA"
+thisFile02 = thisFile.replace("GM_pg_", "HUN ")
+
+# prepare the Attribute Table
+prepareTheAttributeTable()
+
+#reset variables
+emptyTheLists()
+found = 0
+countOfRows = 0
+
+#open a curser
+cursor = arcpy.UpdateCursor(thisFile)
+
+#while row:
+for row in cursor:
+    countOfRows += 1
+    
+    # remove old data from Asset_name 
+    row.AssetName = ""
+    
+    #populate the Group Subgroup ect
+    row.Group_ = "Sociocultural"
+    row.Subgroup = "Cultural"
+    row.Class = "Heritage site"
+
+    # insert asset naming code here
+    row.AssetName = str(row.NAME) + " world heritage area"
+    row.NameRule = "'Name' field from Table + 'World Heritage Area'"
+    row.M1="On"
+    
+    # ID the data source and naming rule used    
+    AssetRule = str(thisFile02) + " - " + str(row.NameRule)
+    
+    #add to Asset_Rules List if not already in there
+    if AssetRule not in Asset_Rules:
+        Asset_Rules.append(AssetRule) 
+        
+    #add to report Lists (if not already in there)
+    if row.AssetName not in Report_AssetList:
+        Report_AssetList.append(str(row.AssetName))
+        #add to report Group List if not already in there
+    
+    # if not in list print the missing name out to console    
+    if row.AssetName == "":
+        print row.AuthorisedPurposeList
+    
+    #populate the AssetID field with only first ElementID 
+    AssetIDfromOnlyFirstElement()
+    
+    # keep track of the groups and classes    
+    listTheGroupsAndClasses()
+        
+           
+    cursor.updateRow(row)
+del cursor, row  
+print
+print
+
+  
+print "ASSET LIST REPORT for WHA ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~" 
+
+# Sort and print the Asset List including counts of features
+sortAndPrintTheAssetList()
+
+#total up counts of Elements and Assets for Total Summary
+countOfElements = countOfElements + countOfRows
+countOfAssetsGalilee = countOfAssetsGalilee + len(Report_AssetList)
+
+#output Groups and classes data
+printGroupsAndClassesInfo()
+print 
+print
+print
+
+
+
+"""TOTAL NUMBER ASSETS FOR HUN ++++++++++++++++++++++++++++++++++
+"""
+print "+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++"
+print "SUMMARY OF ELEMENTS AND ASSETS IN THE HUN"
+print "Total unique assets names in Clarence Morton is ",
+print countOfAssetsGalilee,
+print " from ",
+print countOfElements,
+print " Elements"
+print
+print
+
+print "ASSET NAMING RULES REPORT - from NameRule field"
+
+
+# sort Asset_Rules List
+Asset_Rules.sort()
+
+# report the Asset List to the console
+for item in Asset_Rules:
+    A_name = str(item)
+    print A_name
+print
+
